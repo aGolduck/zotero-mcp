@@ -155,12 +155,13 @@ def setup_semantic_search(existing_semantic_config: dict = None, semantic_config
     print("1. Default (all-MiniLM-L6-v2) - Free, runs locally")
     print("2. OpenAI - Better quality, requires API key")
     print("3. Gemini - Better quality, requires API key")
+    print("4. HuggingFace - Free, runs locally, many models available")
 
     while True:
-        choice = input("\nChoose embedding model (1-3): ").strip()
-        if choice in ["1", "2", "3"]:
+        choice = input("\nChoose embedding model (1-4): ").strip()
+        if choice in ["1", "2", "3", "4"]:
             break
-        print("Please enter 1, 2, or 3")
+        print("Please enter 1, 2, 3, or 4")
 
     config = {}
 
@@ -221,6 +222,50 @@ def setup_semantic_search(existing_semantic_config: dict = None, semantic_config
             print(f"Using custom Gemini base URL: {base_url}")
         else:
             print("Using default Gemini base URL")
+
+    elif choice == "4":
+        # HuggingFace local models
+        print("\nHuggingFace embedding models:")
+        print("1. bge-zh - BAAI/bge-small-zh-v1.5 (recommended for Chinese)")
+        print("2. bge-en - BAAI/bge-small-en-v1.5 (recommended for English)")
+        print("3. bge-large-zh - BAAI/bge-large-zh-v1.5 (higher quality, slower)")
+        print("4. qwen - Qwen/Qwen3-Embedding-0.6B")
+        print("5. embeddinggemma - google/embeddinggemma-300m")
+        print("6. Custom - Enter a HuggingFace model name")
+
+        while True:
+            hf_choice = input("Choose HuggingFace model (1-6): ").strip()
+            if hf_choice in ["1", "2", "3", "4", "5", "6"]:
+                break
+            print("Please enter 1, 2, 3, 4, 5, or 6")
+
+        hf_shortcuts = {
+            "1": "bge-zh",
+            "2": "bge-en",
+            "3": "bge-large-zh",
+            "4": "qwen",
+            "5": "embeddinggemma",
+        }
+
+        if hf_choice in hf_shortcuts:
+            config["embedding_model"] = hf_shortcuts[hf_choice]
+            print(f"Using HuggingFace model shortcut: {config['embedding_model']}")
+        else:
+            custom_model = input("Enter HuggingFace model name (e.g. BAAI/bge-m3): ").strip()
+            if custom_model:
+                config["embedding_model"] = custom_model
+                print(f"Using custom HuggingFace model: {custom_model}")
+            else:
+                config["embedding_model"] = "qwen"
+                print("No model provided, using default: qwen (Qwen/Qwen3-Embedding-0.6B)")
+
+        # HF mirror hint
+        print("\nTip: If you have trouble downloading models, set HF_ENDPOINT environment variable.")
+        print("  e.g. export HF_ENDPOINT=https://hf-mirror.com")
+        hf_endpoint = input("Enter HuggingFace mirror URL (leave blank to skip): ").strip()
+        if hf_endpoint:
+            config.setdefault("embedding_config", {})["hf_endpoint"] = hf_endpoint
+            print(f"Will use HuggingFace mirror: {hf_endpoint}")
 
     # Configure update frequency
     print("\n=== Database Update Configuration ===")
@@ -409,7 +454,9 @@ def update_claude_config(config_path, zotero_mcp_path, local=True, api_key=None,
 
     # Add semantic search settings if provided
     if semantic_config:
-        env_settings["ZOTERO_EMBEDDING_MODEL"] = semantic_config.get("embedding_model", "default")
+        embedding_model = semantic_config.get("embedding_model", "default")
+        if embedding_model and embedding_model != "default":
+            env_settings["ZOTERO_EMBEDDING_MODEL"] = embedding_model
 
         embedding_config = semantic_config.get("embedding_config", {})
         if semantic_config.get("embedding_model") == "openai":
@@ -427,6 +474,11 @@ def update_claude_config(config_path, zotero_mcp_path, local=True, api_key=None,
                 env_settings["GEMINI_EMBEDDING_MODEL"] = model
             if base_url := embedding_config.get("base_url"):
                 env_settings["GEMINI_BASE_URL"] = base_url
+
+        else:
+            # HuggingFace or other local models — pass HF_ENDPOINT if configured
+            if hf_endpoint := embedding_config.get("hf_endpoint"):
+                env_settings["HF_ENDPOINT"] = hf_endpoint
 
     # Add or update zotero config
     config["mcpServers"]["zotero"] = {

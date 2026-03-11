@@ -140,6 +140,9 @@ class HuggingFaceEmbeddingFunction(EmbeddingFunction):
 
         try:
             from sentence_transformers import SentenceTransformer
+            hf_endpoint = os.getenv("HF_ENDPOINT")
+            if hf_endpoint:
+                logger.info(f"Using HuggingFace mirror: {hf_endpoint}")
             logger.info(f"Loading embedding model: {model_name}")
             self.model = SentenceTransformer(model_name, trust_remote_code=True)
         except ImportError:
@@ -167,6 +170,19 @@ class HuggingFaceEmbeddingFunction(EmbeddingFunction):
         return embeddings.tolist()
 
 
+# Registry of short aliases → full HuggingFace model names.
+# Users can set ZOTERO_EMBEDDING_MODEL or config "embedding_model" to any key
+# here and it will be resolved to the full model identifier automatically.
+HUGGINGFACE_MODEL_SHORTCUTS = {
+    "qwen": "Qwen/Qwen3-Embedding-0.6B",
+    "bge": "BAAI/bge-small-zh-v1.5",
+    "bge-zh": "BAAI/bge-small-zh-v1.5",
+    "bge-en": "BAAI/bge-small-en-v1.5",
+    "bge-large-zh": "BAAI/bge-large-zh-v1.5",
+    "embeddinggemma": "google/embeddinggemma-300m",
+}
+
+
 class ChromaClient:
     """ChromaDB client for Zotero semantic search."""
 
@@ -181,7 +197,7 @@ class ChromaClient:
         Args:
             collection_name: Name of the ChromaDB collection
             persist_directory: Directory to persist the database
-            embedding_model: Model to use for embeddings ('default', 'openai', 'gemini', 'qwen', 'embeddinggemma', or HuggingFace model name)
+            embedding_model: Model to use for embeddings ('default', 'openai', 'gemini', or a HuggingFace shortcut/model name; see HUGGINGFACE_MODEL_SHORTCUTS)
             embedding_config: Configuration for the embedding model
         """
         self.collection_name = collection_name
@@ -247,16 +263,14 @@ class ChromaClient:
             base_url = self.embedding_config.get("base_url")
             return GeminiEmbeddingFunction(model_name=model_name, api_key=api_key, base_url=base_url)
 
-        elif self.embedding_model == "qwen":
-            model_name = self.embedding_config.get("model_name", "Qwen/Qwen3-Embedding-0.6B")
+        elif self.embedding_model in HUGGINGFACE_MODEL_SHORTCUTS:
+            # Resolve shortcut alias to full model name
+            default_model = HUGGINGFACE_MODEL_SHORTCUTS[self.embedding_model]
+            model_name = self.embedding_config.get("model_name", default_model)
             return HuggingFaceEmbeddingFunction(model_name=model_name)
 
-        elif self.embedding_model == "embeddinggemma":
-            model_name = self.embedding_config.get("model_name", "google/embeddinggemma-300m")
-            return HuggingFaceEmbeddingFunction(model_name=model_name)
-
-        elif self.embedding_model not in ["default", "openai", "gemini"]:
-            # Treat any other value as a HuggingFace model name
+        elif self.embedding_model not in ["default"]:
+            # Treat any other non-reserved value as a HuggingFace model name
             return HuggingFaceEmbeddingFunction(model_name=self.embedding_model)
 
         else:
@@ -458,7 +472,7 @@ def create_chroma_client(config_path: str | None = None) -> ChromaClient:
 
     # Load configuration from environment variables
     env_embedding_model = os.getenv("ZOTERO_EMBEDDING_MODEL")
-    if env_embedding_model:
+    if env_embedding_model and env_embedding_model != "default":
         config["embedding_model"] = env_embedding_model
 
     # Set up embedding config from environment
